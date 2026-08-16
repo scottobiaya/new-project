@@ -1,0 +1,107 @@
+# ==========================================
+# Terraform
+# ==========================================
+
+# Terraform working directory
+.terraform/
+
+# Terraform state files
+*.tfstate
+*.tfstate.*
+
+# Terraform plan files
+*.tfplan
+*.tfplan.*
+
+# Terraform crash logs
+crash.log
+crash.*.log
+
+# Terraform variable files
+*.tfvars
+*.tfvars.json
+
+# Terraform override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform CLI configuration
+.terraformrc
+terraform.rc
+
+
+# ==========================================
+# AWS / Credentials
+# ==========================================
+
+# AWS credentials
+.aws/
+.aws/credentials
+
+# Environment files
+.env
+.env.*
+
+# Credential/config files
+credentials
+credentials.json
+
+
+# ==========================================
+# SSH Private Keys
+# ==========================================
+
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+
+# SSH configuration
+.ssh/
+
+
+# ==========================================
+# Docker
+# ==========================================
+
+# Docker environment files
+docker/.env
+docker/.env.*
+
+# Docker override files
+docker-compose.override.yml
+
+
+# ==========================================
+# Operating System
+# ==========================================
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+
+# ==========================================
+# Editors / IDEs
+# ==========================================
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+
+# ==========================================
+# Logs
+# ==========================================
+
+*.log
+logs/
