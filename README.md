@@ -1,47 +1,65 @@
-AWS Terraform Docker Deployment
+AWS Terraform Docker Nginx Deployment
 
-This project provisions an AWS environment using Terraform and deploys a containerised Nginx application on two EC2 instances.
+This project provisions AWS infrastructure with Terraform and runs an Nginx application inside Docker containers on two EC2 instances.
 
-Terraform creates the AWS infrastructure, including the VPC, subnets, security group, EC2 instances, and Application Load Balancer.
+Terraform creates the network, EC2 instances, security group, Application Load Balancer, target group and listener.
 
-When the EC2 instances start, they install Docker and pull the existing application image from Docker Hub:
+The application image is already stored in Docker Hub:
 
 scottobiaya/scott-nginx-app:2.1
 
-The Docker image is not built on the EC2 instances. It is pulled from Docker Hub and then run as a container.
+When the EC2 instances are launched, server-setup.sh installs Docker, pulls the image from Docker Hub and starts the container.
+
+Docker is not installed on the local Windows machine. The EC2 instances handle the Docker runtime.
 
 Architecture
 flowchart TB
 
-    User((User / Browser))
-
-    User -->|HTTP :80| ALB["Application Load Balancer"]
+    Internet((Internet))
 
     subgraph AWS["AWS"]
-        subgraph VPC["VPC"]
+        subgraph VPC["VPC 10.0.0.0/16"]
 
-            ALB -->|HTTP :80| EC1["EC2 Instance 1<br/>us-east-1a"]
-            ALB -->|HTTP :80| EC2["EC2 Instance 2<br/>us-east-1b"]
+            IGW["Internet Gateway"]
 
-            EC1 --> D1["Docker Container<br/>Nginx"]
-            EC2 --> D2["Docker Container<br/>Nginx"]
+            subgraph PublicSubnets["Public Subnets"]
+                
+                subgraph AZ1["us-east-1a"]
+                    EC2A["EC2 Instance 1"]
+                    CONTA["Docker Container<br/>Nginx"]
+                    EC2A --> CONTA
+                end
+
+                subgraph AZ2["us-east-1b"]
+                    EC2B["EC2 Instance 2"]
+                    CONTB["Docker Container<br/>Nginx"]
+                    EC2B --> CONTB
+                end
+
+            end
+
+            ALB["Application Load Balancer<br/>HTTP :80"]
+
+            ALB --> EC2A
+            ALB --> EC2B
 
         end
     end
 
-    DockerHub["Docker Hub<br/>scottobiaya/scott-nginx-app:2.1"]
+    Internet --> IGW
+    IGW --> ALB
 
-    EC1 -.->|docker pull| DockerHub
-    EC2 -.->|docker pull| DockerHub
-How the Deployment Works
+    DockerHub[("Docker Hub<br/>scottobiaya/scott-nginx-app:2.1")]
 
-The deployment has two separate parts:
+    DockerHub -. "docker pull" .-> EC2A
+    DockerHub -. "docker pull" .-> EC2B
+How It Works
 
-1. Infrastructure
+The deployment is split into two parts.
 
-Terraform creates and configures the AWS resources.
+Infrastructure
 
-The infrastructure includes:
+Terraform provisions the AWS environment:
 
 VPC
 Two public subnets
@@ -53,52 +71,48 @@ Application Load Balancer
 Target group
 Load Balancer listener
 Target group attachments
-2. Application
 
-The application is packaged as a Docker image and stored in Docker Hub.
+The EC2 instances are placed in separate Availability Zones:
 
-The EC2 instances do not build the image.
+Instance	Availability Zone	Subnet
+EC2 Instance 1	us-east-1a	10.0.1.0/24
+EC2 Instance 2	us-east-1b	10.0.2.0/24
+Application
 
-During startup, each EC2 instance:
+The Docker image is stored in Docker Hub and is pulled by each EC2 instance when it starts.
 
-Updates the Ubuntu package repository.
-Installs Docker.
-Starts the Docker service.
-Pulls scottobiaya/scott-nginx-app:2.1 from Docker Hub.
-Starts the Docker container.
-Passes the server-specific message into the container.
-Nginx serves the web page on port 80.
+The image contains Nginx and the application startup script.
 
-The Application Load Balancer then distributes requests between the two EC2 instances.
+The EC2 instances do not build the image during Terraform deployment.
 
 Deployment Flow
-                         User
-                           |
-                           | HTTP
-                           v
-                Application Load Balancer
-                     /             \
-                    /               \
-                   v                 v
-             EC2 Instance 1     EC2 Instance 2
-             us-east-1a         us-east-1b
-                   |                 |
-                   v                 v
-                Docker            Docker
-                   |                 |
-                   v                 v
-             Nginx Container    Nginx Container
-                   ^                 ^
-                   |                 |
-                   +--------+--------+
-                            |
-                       docker pull
-                            |
-                            v
-                       Docker Hub
-                            |
-                            v
-              scottobiaya/scott-nginx-app:2.1
+sequenceDiagram
+    participant T as Terraform
+    participant A as EC2 Instance 1
+    participant B as EC2 Instance 2
+    participant D as Docker Hub
+    participant L as Load Balancer
+    participant U as User
+
+    T->>A: Launch instance and run user_data
+    T->>B: Launch instance and run user_data
+
+    A->>A: Install Docker
+    B->>B: Install Docker
+
+    A->>D: Pull scott-nginx-app:2.1
+    D-->>A: Docker image
+
+    B->>D: Pull scott-nginx-app:2.1
+    D-->>B: Docker image
+
+    A->>A: Start Nginx container
+    B->>B: Start Nginx container
+
+    U->>L: HTTP request
+    L->>A: Forward request
+    A-->>L: HTTP response
+    L-->>U: Response
 Project Structure
 New-Project/
 │
@@ -118,59 +132,87 @@ New-Project/
 Terraform Configuration
 main.tf
 
-The main.tf file defines the AWS infrastructure.
+main.tf contains the AWS infrastructure configuration.
 
-It creates:
+The file creates the VPC, subnets, routing, security group, EC2 instances and Application Load Balancer.
 
-VPC
-Public subnets
-Internet Gateway
-Route table
-Security group
-EC2 instances
-Application Load Balancer
-Target group
-Listener
-Target group attachments
+The two EC2 instances use the same startup script but receive different server messages.
 
-The two EC2 instances are deployed in different Availability Zones:
-
-EC2 Instance 1 → us-east-1a
-EC2 Instance 2 → us-east-1b
-
-This allows the Load Balancer to distribute traffic between two separate instances.
-
-variables.tf
-
-The project uses Terraform variables for values that need to be configurable.
-
-Current variables include:
-
-cidr_block
-key_name
-
-The Docker image is not defined as a Terraform variable in this version of the project.
-
-The Docker image is specified directly in server-setup.sh:
-
-scottobiaya/scott-nginx-app:2.1
-EC2 Server Setup
-
-The scripts/server-setup.sh file is used as EC2 user data.
-
-Terraform passes a different SERVER_MESSAGE to each EC2 instance.
-
-For the first instance:
+Instance 1:
 
 SERVER_MESSAGE = "scott server 1"
 
-For the second instance:
+Instance 2:
 
 SERVER_MESSAGE = "scott server 2"
 
-The setup script then passes this value into the Docker container.
+Terraform passes these values to server-setup.sh using templatefile().
 
-The relevant Docker command is:
+variables.tf
+
+The project currently uses two Terraform variables:
+
+variable "cidr_block" {
+  type    = string
+  default = "10.0.0.0/16"
+}
+
+variable "key_name" {
+  type    = string
+  default = "terraform-ec2-key"
+}
+
+The Docker image is not a Terraform variable.
+
+The image name and version are currently defined in server-setup.sh:
+
+scottobiaya/scott-nginx-app:2.1
+Docker
+
+The Docker configuration is located in the docker directory.
+
+Dockerfile
+
+The Dockerfile uses the Nginx base image:
+
+FROM nginx:latest
+
+It copies start.sh into the image and uses the script as the container startup command.
+
+The Dockerfile is used when the Docker image is built.
+
+start.sh
+
+start.sh runs inside the Docker container.
+
+It creates the Nginx index.html file using the SERVER_MESSAGE environment variable and then starts Nginx.
+
+The important distinction is that start.sh belongs to the Docker image. It is not the script used to configure the EC2 server.
+
+EC2 Server Setup
+
+The EC2 instances are configured using:
+
+scripts/server-setup.sh
+
+Terraform passes the script to each EC2 instance through user_data.
+
+The script performs the following tasks:
+
+Updates the Ubuntu package repository.
+Installs Docker and curl.
+Enables Docker.
+Starts Docker.
+Pulls the Docker image from Docker Hub.
+Starts the Nginx container.
+Checks that the container is running.
+Tests the application locally with curl.
+
+The Docker image used is:
+
+scottobiaya/scott-nginx-app:2.1
+
+The container is started with:
 
 docker run -d \
   --name scott-nginx \
@@ -178,58 +220,46 @@ docker run -d \
   -p 80:80 \
   -e SERVER_MESSAGE="${SERVER_MESSAGE}" \
   scottobiaya/scott-nginx-app:2.1
+Docker Image and EC2 Deployment
 
-This allows both servers to run the same Docker image while displaying a different server message.
+The application image is maintained separately from the Terraform infrastructure.
 
-Docker Image
+The relationship between the Docker image and EC2 deployment is:
 
-The Docker image used by the EC2 instances is:
+flowchart LR
 
-scottobiaya/scott-nginx-app:2.1
+    Image["Docker Image<br/>scott-nginx-app:2.1"]
 
-The image is hosted on Docker Hub.
+    Registry[("Docker Hub")]
 
-The EC2 instances retrieve it using:
+    EC1["EC2 Instance 1"]
+    EC2["EC2 Instance 2"]
 
-docker pull scottobiaya/scott-nginx-app:2.1
+    C1["Nginx Container"]
+    C2["Nginx Container"]
 
-The image contains the Nginx application and its startup configuration.
+    Image --> Registry
+    Registry -.-> EC1
+    Registry -.-> EC2
 
-The Docker image is therefore separate from the Terraform infrastructure.
+    EC1 --> C1
+    EC2 --> C2
 
-Docker on the Local Machine
+The EC2 instances only need access to Docker Hub to retrieve the image.
 
-Docker is not required on the local Windows machine to deploy this infrastructure.
+Local Development Environment
 
-Terraform is used locally to provision the AWS resources.
+Docker is not installed on the local Windows machine used for this project.
 
-Docker is installed automatically on the EC2 instances by server-setup.sh.
+This does not prevent the Terraform deployment.
 
-The deployment therefore works as follows:
+Terraform is run locally and provisions the AWS resources. Docker is installed automatically on the EC2 instances by server-setup.sh.
 
-Local Windows Machine
-        |
-        | terraform apply
-        v
-       AWS
-        |
-        v
-    EC2 Instance
-        |
-        | install Docker
-        |
-        | docker pull
-        v
-    Docker Hub
-        |
-        v
-   Docker Container
-        |
-        v
-       Nginx
+The current deployment therefore does not require a local Docker installation.
+
 Prerequisites
 
-The following are required on the machine running Terraform:
+The following are required:
 
 AWS account
 AWS CLI
@@ -237,21 +267,19 @@ Terraform
 Git
 GitHub account
 AWS credentials
-An existing Docker image on Docker Hub
+Docker image available in Docker Hub
 
-Docker is not required locally for the current deployment process.
-
-The Docker image used by the EC2 instances must already exist in Docker Hub.
+Docker is not required on the local machine for the current deployment.
 
 AWS Credentials
 
-Before running Terraform, configure AWS credentials.
+Configure AWS credentials before running Terraform.
 
-Verify the current AWS identity:
+Verify the configured AWS identity:
 
 aws sts get-caller-identity
 
-The command should return information about the AWS account and identity being used.
+The command should return the AWS account and IAM identity being used.
 
 Deployment
 
@@ -267,7 +295,7 @@ Initialise Terraform:
 
 terraform init
 
-Format the Terraform configuration:
+Format the Terraform files:
 
 terraform fmt
 
@@ -275,7 +303,7 @@ Validate the configuration:
 
 terraform validate
 
-Create a deployment plan:
+Create a Terraform plan:
 
 terraform plan
 
@@ -283,15 +311,15 @@ Apply the configuration:
 
 terraform apply
 
-Review the resources Terraform plans to create and confirm the deployment.
+Review the resources Terraform plans to create before confirming the deployment.
 
 Checking the EC2 Instances
 
-After Terraform creates the instances, connect to an EC2 instance using SSH:
+Connect to an EC2 instance using SSH:
 
 ssh -i <key-file> ubuntu@<EC2-PUBLIC-IP>
 
-Check that Docker is running:
+Check the Docker service:
 
 sudo systemctl status docker
 
@@ -299,55 +327,48 @@ Check the running container:
 
 sudo docker ps
 
-Check the Docker image:
+Check the downloaded image:
 
 sudo docker images
 
-The expected image is:
-
-scottobiaya/scott-nginx-app
-
-Check the container logs:
+Check the application logs:
 
 sudo docker logs scott-nginx
-Testing Nginx
+Testing the Application
 
-From an EC2 instance, test the local container:
+Test the application directly from an EC2 instance:
 
 curl http://localhost
 
-The response should contain the server-specific message.
-
-For example, the first instance should display:
+The first EC2 instance should return its configured message:
 
 scott server 1
 
-and the second instance should display:
+The second EC2 instance should return:
 
 scott server 2
+
+This confirms that both instances are running the same Docker image while receiving different SERVER_MESSAGE values.
+
 Testing Through the Load Balancer
 
-The Application Load Balancer provides the public entry point for the application.
+The Application Load Balancer provides the public endpoint for the application.
 
-After Terraform creates the Load Balancer, obtain its DNS name from the AWS console.
+Find the Load Balancer DNS name in the AWS console.
 
-Open the following in a browser:
+Open:
 
 http://<LOAD-BALANCER-DNS-NAME>
 
-The Load Balancer forwards the request to one of the EC2 instances.
+The Load Balancer forwards requests to the registered EC2 instances.
 
-Refreshing the page may return a response from either instance.
-
-This demonstrates that the Application Load Balancer is distributing traffic between the two EC2 instances.
+Because the two instances have different server messages, refreshing the page can show which backend instance handled the request.
 
 Terraform State
 
-Terraform maintains information about the infrastructure in its state file.
+Terraform state files contain information about the infrastructure and should not be committed to GitHub.
 
-Terraform state files should not be committed to GitHub.
-
-The .gitignore file should contain entries similar to:
+The .gitignore file should include:
 
 .terraform/
 *.tfstate
@@ -355,31 +376,31 @@ The .gitignore file should contain entries similar to:
 *.tfplan
 tfplan
 
-Terraform plan files should also remain outside the Git repository.
+Terraform plan files should also remain outside the repository.
 
-Updating the Docker Application
+Updating the Application
 
-The current Terraform deployment uses the existing Docker Hub image:
+The current deployment uses:
 
 scottobiaya/scott-nginx-app:2.1
 
-If the application is changed, a new Docker image must be built and pushed to Docker Hub before the EC2 instances can use it.
+If the application is changed, a new Docker image needs to be built and pushed to Docker Hub.
 
-For example, a future version could use:
+For example:
 
 scottobiaya/scott-nginx-app:2.2
 
-The EC2 startup configuration would then need to be updated to pull and run the new image.
+The EC2 startup configuration would then need to reference the new image version.
 
-Docker is not currently installed on the Windows development machine, so building new images would need to be performed from another environment that has Docker installed.
+The current Windows development machine does not have Docker installed, so a Docker-enabled environment would be required to build and publish a new image.
 
 Destroying the Infrastructure
 
-When the environment is no longer required, the AWS resources can be removed using:
+When the environment is no longer required:
 
 terraform destroy
 
-Review the resources Terraform plans to remove before confirming the operation.
+Review the resources that Terraform plans to remove before confirming the operation.
 
 Technologies Used
 AWS
@@ -394,43 +415,10 @@ Git
 GitHub
 Project Summary
 
-This project demonstrates how Terraform can be used to provision AWS infrastructure and deploy a Dockerised application.
+This project demonstrates a basic Infrastructure as Code deployment using Terraform and Docker.
 
-Terraform manages the infrastructure while Docker manages the application runtime.
+Terraform manages the AWS infrastructure while Docker provides the application runtime on the EC2 instances.
 
-The final deployment separates the two responsibilities:
+The application image is stored in Docker Hub and is pulled by the EC2 instances during startup.
 
-Terraform
-    |
-    v
-AWS Infrastructure
-    |
-    +-- VPC
-    |
-    +-- Subnet 1
-    |      |
-    |      +-- EC2
-    |           |
-    |           +-- Docker
-    |                |
-    |                +-- Nginx
-    |
-    +-- Subnet 2
-    |      |
-    |      +-- EC2
-    |           |
-    |           +-- Docker
-    |                |
-    |                +-- Nginx
-    |
-    +-- Application Load Balancer
-
-Docker Hub
-    |
-    +-- scottobiaya/scott-nginx-app:2.1
-             |
-             +-- pulled by EC2 Instance 1
-             |
-             +-- pulled by EC2 Instance 2
-
-The result is a repeatable AWS deployment where Terraform provisions the infrastructure and the EC2 instances retrieve the application container from Docker Hub.
+The final setup consists of two EC2 instances running the same Nginx Docker image behind an Application Load Balancer.
