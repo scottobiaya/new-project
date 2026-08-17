@@ -1,6 +1,7 @@
-echo "Creating start.sh..."
-cat > /opt/scott-nginx/start.sh <<'EOF'
 #!/bin/bash
+set -e
+
+echo "Creating web page..."
 
 cat > /usr/share/nginx/html/index.html <<HTML
 <!DOCTYPE html>
@@ -15,7 +16,6 @@ cat > /usr/share/nginx/html/index.html <<HTML
 </html>
 HTML
 
-nginx -g "daemon off;"
-EOF
+echo "Starting Nginx..."
 
-chmod +x /opt/scott-nginx/start.sh
+nginx -g "daemon off;" 
