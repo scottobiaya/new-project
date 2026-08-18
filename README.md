@@ -220,18 +220,6 @@ terraform-ec2-key
 
 The key pair is created separately in AWS and referenced by Terraform.
 
-### docker_image
-
-Specifies the Docker image that the EC2 instances should pull from Docker Hub.
-
-Example:
-
-```text
-scottobiaya/scott-nginx:latest
-```
-
-The Docker image name must match the image that has been pushed to Docker Hub.
-
 ---
 
 # Docker Architecture
