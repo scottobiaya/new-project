@@ -196,7 +196,6 @@ The main variables include:
 ```text
 cidr_block
 key_name
-docker_image
 ```
 
 ### cidr_block
